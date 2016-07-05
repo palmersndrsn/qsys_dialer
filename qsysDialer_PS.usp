@@ -1,0 +1,250 @@
+#CATEGORY "46" "Q-SYS" // Custom
+/*
+Dealer Name: CoitCom
+Programmer: palmer_sanderson
+Comments: 
+*/
+  
+//COMPILER DIRECTIVES
+#symbol_name "Q-SYS Dialer"
+//#hint ""
+#print_to_trace
+#enable_trace
+#default_volatile
+
+
+#help_begin
+    V.01
+    
+    -TX/RX are for communication.
+  
+    -The named control strings are automatically set to defualt unless changed
+    
+    -voip and pots are not functional yet, voip is automatically selected
+    
+    -call progress/status fb return from Q-SYS
+    
+    -standard dialer controls are as shown
+    
+  
+#help_end
+
+
+//INCLUDE LIBRARIES
+// #USER_SIMPLSHARP_LIBRARY "<clz name>"
+
+//IO Assignments
+string_input _skip_, DSP_RX[128], _skip_, named_control_prefix_custom[128], named_control_keypad_prefix_custom[128], named_controls_for_change_group_2_phone_status_CUSTOM[128], _skip_;
+
+string_output DSP_TX, _skip_, call_status_fb, call_progress_fb;
+
+digital_input program_start, redial, disconnect, connect, _skip_, backspace, dialerClear, _skip_ /*VoIP, Pots, _skip_*/;
+
+digital_input one, two, three, four, five, six, seven, eight, nine, zero, star, pound;
+
+string_output number_dialed;
+
+// digital_output call_hold_fb,connected_fb,disconnected_fb,ringing_fb;
+
+
+
+
+//Variables
+
+string named_control_prefix[128];
+string named_control_keypad_prefix[128];
+string number_dialed_for_redial[128];
+string named_controls_for_change_group_2_phone_status[128];
+string key[10];
+integer p1,p2,p3,x;
+//remove when add pots/voip
+integer voip, pots;
+
+//Events
+
+//gets number dialed for feedback
+function request_dialed_number()
+{
+    delay(50);
+    makestring(DSP_TX,"cg %sCallControlDialString\x0D\x0A",named_control_prefix);
+}
+
+//sends keypad presses 
+function keypadPress(string key)
+{
+    makestring(DSP_TX, "ct %s%s%s\x0D\x0A",named_control_prefix,named_control_keypad_prefix,key);
+    request_dialed_number();
+}
+// set change group
+function setChangeGroup()
+{
+    makestring(DSP_TX, "cgc 2");
+    delay(50);
+    makestring(DSP_TX, "cgsna 2 100");
+    delay(50);
+    makestring(DSP_TX, "cga 2 %s", named_controls_for_change_group_2_phone_status);
+    
+}
+
+
+
+
+//grab numbers dialed
+change DSP_RX
+{
+    if(find("cv \x22SoftPhoneStatusSoftphone-1CallControlDialString",DSP_RX))
+    {
+        p1 = find("cv \x22SoftPhoneStatusSoftphone-1",DSP_RX, 1);
+        p2 = find("\x22\x20\x22",DSP_RX, p1) + 3;
+        p3 = find("\x22",DSP_RX, p2);
+        number_dialed_for_redial = mid(DSP_RX, p2, p3 -p2);
+        number_dialed = number_dialed_for_redial;   
+    }
+    else if(find("cv \x22SoftPhoneStatusSoftphone-1CallControlDialString",DSP_RX))
+    {
+        p1 = find("cv \x22SoftPhoneStatusSoftphone-1CallStatusStatus",DSP_RX, 1);
+        p2 = find("\x22\x20\x22",DSP_RX, p1) + 3;
+        p3 = find("\x22",DSP_RX, p2);
+        call_status_fb = mid(DSP_RX, p2, p3 -p2);
+          
+    }
+    else if(find("cv \x22SoftPhoneStatusSoftphone-1CallStatusCallProgress",DSP_RX))
+    {
+        p1 = find("cv \x22SoftPhoneStatusSoftphone-1CallStatusCallProgress",DSP_RX, 1);
+        p2 = find("\x22\x20\x22",DSP_RX, p1) + 3;
+        p3 = find("\x22",DSP_RX, p2);
+        call_progress_fb = mid(DSP_RX, p2, p3 -p2);
+          
+    }
+}
+
+
+// check for custom prefixes
+change program_start
+{
+    voip = 1;
+    if(len(named_control_prefix_custom) > 0)
+    {   
+        named_control_prefix = named_control_prefix_custom;
+    }
+    else if(VoIP = 1)
+    {
+        named_control_prefix = "SoftPhoneStatusSoftphone-1";
+    }
+    else if(Pots = 1)
+    {
+        named_control_prefix = "PotsControllerCore";
+    }
+    else
+    {
+        print("prefix not defined");
+    }
+    
+
+    if(len(named_control_keypad_prefix_custom) > 0)
+    {   
+        named_control_keypad_prefix = named_control_keypad_prefix_custom;
+    }
+    else
+    {
+        named_control_keypad_prefix = "PinPadPinPad";
+    }
+    
+    if(len(named_controls_for_change_group_2_phone_status) > 0)
+    {
+        named_controls_for_change_group_2_phone_status = named_controls_for_change_group_2_phone_status_CUSTOM;
+    }
+    else
+    {
+        named_controls_for_change_group_2_phone_status = "SoftPhoneStatusSoftphone-1CallStatusStatus";
+    }
+    
+    setChangeGroup();
+
+}
+
+// call controls presses
+push connect
+{
+    makestring(DSP_TX,"ct %sCallControlConnect\x0D\x0A",named_control_prefix);
+    request_dialed_number();
+}
+
+push redial
+{
+    makestring(DSP_TX,"css %sCallControlDialString \x22%s\x22\x0D\x0A",named_control_prefix,number_dialed_for_redial);
+    delay(50);
+    makestring(DSP_TX,"ct %sCallControlConnect\x0D\x0A",named_control_prefix);
+}
+
+push disconnect
+{
+    makestring(DSP_TX,"ct %sCallControlDisconnect\x0D\x0A",named_control_prefix);
+    // not sure if needed
+    // makestring(DSP_TX,"css %sCallControlDialString \x22\x22",named_control_prefix);
+}
+
+//Keypad presses
+push dialerClear 
+{
+    keypadPress("Clear");
+}
+push backspace 
+{
+    keypadPress("Backspace");
+}
+push one 
+{
+    keypadPress("1");
+}
+push two 
+{
+    keypadPress("2");
+}
+push three 
+{
+    keypadPress("3");
+}
+push four 
+{
+    keypadPress("4");
+}
+push five 
+{
+    keypadPress("5");
+}
+push six 
+{
+    keypadPress("6");
+}
+push seven
+{
+    keypadPress("7");
+}
+push eight 
+{
+    keypadPress("8");
+}
+push nine 
+{
+    keypadPress("9");
+}
+push zero 
+{
+    keypadPress("0");
+}
+push star
+{
+    keypadPress("*");
+}
+push pound
+{
+    keypadPress("#");
+}
+
+//Main
+function main()
+{
+  waitforinitializationcomplete();
+}
+
