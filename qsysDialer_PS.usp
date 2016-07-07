@@ -26,7 +26,6 @@ Comments:
     
     -standard dialer controls are as shown
     
-  
 #help_end
 
 
@@ -34,11 +33,32 @@ Comments:
 // #USER_SIMPLSHARP_LIBRARY "<clz name>"
 
 //IO Assignments
-string_input _skip_, DSP_RX[128], _skip_, named_control_prefix_custom[128], named_control_keypad_prefix_custom[128], named_controls_for_change_group_2_phone_status_CUSTOM[128], _skip_;
+string_input 
+    _skip_,
+    DSP_RX[128],
+     _skip_,
+    dial_string_named_control_CUSTOM[128], 
+    call_status_named_control_CUSTOM[128],
+    keypad_prefix_custom[128],
+    connect_named_control_CUSTOM[128],
+    disconnect_named_control_CUSTOM[128],
+    _skip_;
 
-string_output DSP_TX, _skip_, call_status_fb, call_progress_fb;
+string_output 
+    DSP_TX, 
+    _skip_, 
+    call_status_fb, 
+    call_progress_fb;
 
-digital_input program_start, redial, disconnect, connect, _skip_, backspace, dialerClear, _skip_ /*VoIP, Pots, _skip_*/;
+digital_input 
+    program_start, 
+    redial, 
+    disconnect, 
+    connect, 
+    _skip_, 
+    backspace, 
+    dialerClear, 
+    _skip_;
 
 digital_input one, two, three, four, five, six, seven, eight, nine, zero, star, pound;
 
@@ -51,14 +71,18 @@ string_output number_dialed;
 
 //Variables
 
-string named_control_prefix[128];
-string named_control_keypad_prefix[128];
+string dial_string_named_control[128];
+string call_status_named_control[128];
 string number_dialed_for_redial[128];
-string named_controls_for_change_group_2_phone_status[128];
+string keypad_prefix[128];
+string parse_temp[128],cv_add_temp[128];
+
+string connect_named_control[128], disconnect_named_control[128];
+
+string dial_string_CV[128],call_status_CV[128];
+
 string key[10];
 integer p1,p2,p3,x;
-//remove when add pots/voip
-integer voip, pots;
 
 //Events
 
@@ -66,13 +90,13 @@ integer voip, pots;
 function request_dialed_number()
 {
     delay(50);
-    makestring(DSP_TX,"cg %sCallControlDialString\x0D\x0A",named_control_prefix);
+    makestring(DSP_TX,"cg %s\x0D\x0A",dial_string_named_control);
 }
 
 //sends keypad presses 
 function keypadPress(string key)
-{
-    makestring(DSP_TX, "ct %s%s%s\x0D\x0A",named_control_prefix,named_control_keypad_prefix,key);
+{                           
+    makestring(DSP_TX, "ct %s%s\x0D\x0A",keypad_prefix,key);
     request_dialed_number();
 }
 // set change group
@@ -82,39 +106,44 @@ function setChangeGroup()
     delay(50);
     makestring(DSP_TX, "cgsna 2 100");
     delay(50);
-    makestring(DSP_TX, "cga 2 %s", named_controls_for_change_group_2_phone_status);
+    makestring(DSP_TX, "cga 2 %s", call_status_named_control);
+    makestring(DSP_TX, "cga 2 %s", dial_string_named_control);
     
 }
 
+//adds (cv ") to the front of the strings
+string_function addCv(string string_to_add_cv)
+{
+    makestring(cv_add_temp,"cv \x22%s",string_to_add_cv);
+    return(cv_add_temp);
+}
 
+//parses DSP RX
+string_function getData(string cvString)
+{
+    p1 = find(cvString,DSP_RX, 1);
+    p2 = find("\x22\x20\x22",DSP_RX, p1) + 3;
+    p3 = find("\x22",DSP_RX, p2);
+    parse_temp = mid(DSP_RX, p2, p3 -p2);
+    
+    return(parse_temp);
+}
 
 
 //grab numbers dialed
 change DSP_RX
 {
-    if(find("cv \x22SoftPhoneStatusSoftphone-1CallControlDialString",DSP_RX))
+    if(find(dial_string_CV,DSP_RX))
     {
-        p1 = find("cv \x22SoftPhoneStatusSoftphone-1",DSP_RX, 1);
-        p2 = find("\x22\x20\x22",DSP_RX, p1) + 3;
-        p3 = find("\x22",DSP_RX, p2);
-        number_dialed_for_redial = mid(DSP_RX, p2, p3 -p2);
+        
+        number_dialed_for_redial = getData(dial_string_CV);
         number_dialed = number_dialed_for_redial;   
     }
-    else if(find("cv \x22SoftPhoneStatusSoftphone-1CallControlDialString",DSP_RX))
+    else if(find(call_status_CV,DSP_RX))
     {
-        p1 = find("cv \x22SoftPhoneStatusSoftphone-1CallStatusStatus",DSP_RX, 1);
-        p2 = find("\x22\x20\x22",DSP_RX, p1) + 3;
-        p3 = find("\x22",DSP_RX, p2);
-        call_status_fb = mid(DSP_RX, p2, p3 -p2);
-          
-    }
-    else if(find("cv \x22SoftPhoneStatusSoftphone-1CallStatusCallProgress",DSP_RX))
-    {
-        p1 = find("cv \x22SoftPhoneStatusSoftphone-1CallStatusCallProgress",DSP_RX, 1);
-        p2 = find("\x22\x20\x22",DSP_RX, p1) + 3;
-        p3 = find("\x22",DSP_RX, p2);
-        call_progress_fb = mid(DSP_RX, p2, p3 -p2);
-          
+       
+        call_status_fb = getData(call_status_CV);
+        
     }
 }
 
@@ -122,64 +151,65 @@ change DSP_RX
 // check for custom prefixes
 change program_start
 {
-    voip = 1;
-    if(len(named_control_prefix_custom) > 0)
+    if(len(dial_string_named_control_CUSTOM) > 0)
     {   
-        named_control_prefix = named_control_prefix_custom;
-    }
-    else if(VoIP = 1)
-    {
-        named_control_prefix = "SoftPhoneStatusSoftphone-1";
-    }
-    else if(Pots = 1)
-    {
-        named_control_prefix = "PotsControllerCore";
-    }
-    else
-    {
-        print("prefix not defined");
+        dial_string_named_control = dial_string_named_control_CUSTOM;
+    }else{
+        dial_string_named_control = "SoftPhoneStatusSoftphone-1CallControlDialString";
     }
     
 
-    if(len(named_control_keypad_prefix_custom) > 0)
+    if(len(call_status_named_control_CUSTOM) > 0)
     {   
-        named_control_keypad_prefix = named_control_keypad_prefix_custom;
-    }
-    else
-    {
-        named_control_keypad_prefix = "PinPadPinPad";
+        call_status_named_control = call_status_named_control_CUSTOM;
+    }else{
+        call_status_named_control = "SoftPhoneStatusSoftphone-1CallStatusStatus";
     }
     
-    if(len(named_controls_for_change_group_2_phone_status) > 0)
-    {
-        named_controls_for_change_group_2_phone_status = named_controls_for_change_group_2_phone_status_CUSTOM;
+    if(len(keypad_prefix_custom) > 0)
+    {   
+        keypad_prefix = keypad_prefix_custom;
+    }else{
+        keypad_prefix = "SoftPhoneStatusSoftphone-1PinPadPinPad";
     }
-    else
-    {
-        named_controls_for_change_group_2_phone_status = "SoftPhoneStatusSoftphone-1CallStatusStatus";
+    
+    if(len(connect_named_control_CUSTOM) > 0)
+    {   
+        connect_named_control = connect_named_control_CUSTOM;
+    }else{
+        connect_named_control = "SoftPhoneStatusSoftphone-1CallControlConnect";
+    }
+    
+    if(len(disconnect_named_control_CUSTOM) > 0)
+    {   
+        disconnect_named_control = disconnect_named_control_CUSTOM;
+    }else{
+        disconnect_named_control = "SoftPhoneStatusSoftphone-1CallControlDisconnect";
     }
     
     setChangeGroup();
-
+    
+    dial_string_CV = addCV(dial_string_named_control);
+    call_status_CV = addCV(call_status_named_control);
 }
 
 // call controls presses
 push connect
 {
-    makestring(DSP_TX,"ct %sCallControlConnect\x0D\x0A",named_control_prefix);
+    makestring(DSP_TX,"ct %s\x0D\x0A",connect_named_control);
     request_dialed_number();
 }
 
 push redial
 {
-    makestring(DSP_TX,"css %sCallControlDialString \x22%s\x22\x0D\x0A",named_control_prefix,number_dialed_for_redial);
+    makestring(DSP_TX,"css %s \x22%s\x22\x0D\x0A",dial_string_named_control,number_dialed_for_redial);
     delay(50);
-    makestring(DSP_TX,"ct %sCallControlConnect\x0D\x0A",named_control_prefix);
+    makestring(DSP_TX,"ct %s\x0D\x0A",connect_named_control);
 }
 
 push disconnect
 {
-    makestring(DSP_TX,"ct %sCallControlDisconnect\x0D\x0A",named_control_prefix);
+    makestring(DSP_TX,"ct %s\x0D\x0A",disconnect_named_control);
     // not sure if needed
     // makestring(DSP_TX,"css %sCallControlDialString \x22\x22",named_control_prefix);
 }
